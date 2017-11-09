@@ -1,0 +1,23 @@
+#+Title: CFEngine GPG key management policy
+
+
+- Designed for CFEngine Enterprise
+- Ensure each host has a unique gpg key pair (self-generated)
+- Collect public keys into central key store (requires Enterprise API access)
+- Inventory GPG fingerprint value and =has_cfgpg_fingerprint= class
+
+* Inventory  :ATTACH:
+:PROPERTIES:
+:ID:       82371073-cc72-4811-9575-451f694bc8b3
+:Attachments: 2017-11-09_Selection_001_2017-11-09_10-34-26.bmp
+:END:
+
+#+DOWNLOADED: file:///home/nickanderson/Pictures/Screenshots/2017-11-09_Selection_001.bmp @ 2017-11-09 10:34:28
+[[file:data/82/371073-cc72-4811-9575-451f694bc8b3/2017-11-09_Selection_001_2017-11-09_10-34-26.bmp]]
+
+* TODOs
+** TODO Secure credential management for querying Enterprise API
+
+Currently the curl command used to get the hosts which have gpg keys available
+for collection in-lines the username and password used to access the API.
+

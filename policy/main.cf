@@ -1,0 +1,193 @@
+bundle common cfgpg_settings
+{
+  vars:
+      "GNUPGHOME" string => "/var/cfengine/gpg";
+      # Key ids are generated for the cfengine ID
+      "pubkey" string => "$(GNUPGHOME)/$(sys.key_digest).gpg.pub.asc";
+}
+
+bundle agent cfgpg
+{
+    methods:
+
+      "Host Keypair"
+        usebundle => cfgpg_hostkey;
+       # if => not( fileexists( "$(cfgpg_settings.GNUPGHOME)/trustdb.gpg"  ) );
+
+      "Centralized Key Store"
+        usebundle => cfgpg_key_collection,
+        if => "am_policy_hub|policy_server";
+
+}
+
+bundle agent cfgpg_hostkey
+# @brief Ensure that each host has generated a key-pair and exported its public key for central collection
+{
+
+  vars:
+      "GNUPGHOME" string => "$(cfgpg_settings.GNUPGHOME)";
+      "pubkey" string => "$(cfgpg_settings.pubkey)";
+      "cmd" string => "GNUPGHOME=$(GNUPGHOME) gpg2";
+
+      "gen_key_script" string =>
+"Key-Type: 1
+Key-Length: 2048
+Subkey-Type: 1
+Subkey-Length: 2048
+Name-Real: $(sys.key_digest)
+Expire-Date: 0";
+
+  files:
+
+      "$(GNUPGHOME)/."
+        create => "true",
+        perms => m( 600 ),
+        comment => "We need the gpg home directory to exist or things just won't
+                    work. We restrict the perms to avoid WARNING messages from
+                    gpg.";
+
+      "$(GNUPGHOME)/gen-key-script"
+        create => "true",
+        edit_line => insert_lines( $(gen_key_script) ),
+        edit_defaults => empty;
+
+  commands:
+
+      "$(cmd)"
+        arglist => { "--no-tty", "--fingerprint", "--quiet" },
+        contain => in_shell,
+        if => not( fileexists( "$(GNUPGHOME)/trustdb.gpg"  ) ),
+        comment => "We need to initialize the trust db and public keyrings if
+                    they do not exist";
+
+      "$(cmd)"
+        contain => in_shell,
+        if => not( fileexists( $(pubkey) )),
+        arglist => {
+                     "--gen-key",
+                     "--batch", "$(GNUPGHOME)/gen-key-script",
+                   };
+
+      "$(cmd)"
+        contain => in_shell,
+        if => not( fileexists( $(pubkey) )),
+        arglist => {
+                     "--no-tty",
+                     "--output",
+                     $(pubkey),
+                     "--armor",
+                     "--export",
+                     $(sys.key_digest)
+                   };
+
+  vars:
+
+      # We capture the output from list-secret-keys and extract the fingerprint
+      # which we need for some commands, and we will inventory
+
+      "list_secret_keys_output"
+        string => execresult( "$(cmd) --list-secret-keys --fingerprint --with-colons $(sys.key_digest)", useshell );
+
+      # Next we define secret_key_data as a classic 2 dimensional array
+      # would be nice if we had a version of this that returned data directly
+      # Parsing information that looks like this:
+      #
+      # sec::2048:1:64F3B4CEBF1F33B7:1510191059::::::::::
+      # fpr:::::::::C86D1374F23731AAD83CBBE464F3B4CEBF1F33B7:
+      # uid:::::::46A79B6F5A64145EA4A1FFE8A74827AC0DA68AB5::SHA=b9b46aa29817a1c494c32f6e88352117eb4982b8f347092d412cdc6d321254d8:
+      # ssb::2048:1:B620E988866141CB:1510191059::::::::::
+      #
+
+      # d is the number of lines returned
+      "d" int => parsestringarrayidx( secret_key_data, $(list_secret_keys_output), "", ":", inf, inf );
+
+      # We pull the index off the secret key data for iteration
+      "i" slist => getindices( secret_key_data );
+
+      # We iterate over the results until we find the fingerprint line and pick
+      # out the correct column We could pick it out positionally, but this is
+      # more resilient to the order of the lines changing.
+
+      "fingerprint"
+        string => "$(secret_key_data[$(i)][9])",
+        meta => { "inventory", "attribute_name=CFEngine GPG Fingerprint" },
+        if => and(
+                   strcmp( "$(secret_key_data[$(i)][0])", "fpr" ),
+                   not( isvariable( fingerprint ) ));
+
+  classes:
+
+      "has_cfgpg_fingerprint"
+        expression => isvariable( fingerprint ),
+        scope => "namespace",
+        meta => { "report" };
+
+
+    "$(this.bundle)_test_encryption"::
+
+      "can_gpg_encrypt_to_self"
+        expression => returnszero( "$(cmd) --quiet --yes --trust-model always --recipient $(fingerprint) --encrypt $(GNUPGHOME)/gen-key-script", useshell );
+
+      "can_gpg_decrypt_for_self"
+        expression => returnszero( "$(cmd) --quiet --yes --output $(GNUPGHOME)/decrypted-gen-key-script --decrypt $(GNUPGHOME)/gen-key-script.gpg", useshell );
+
+  reports:
+      can_gpg_encrypt_to_self:: "I can encrypt data for myself";
+      can_gpg_decrypt_for_self:: "I can decrypt data that was encrypted for me";
+
+    "DEBUG|DEBUG_$(this.bundle)"::
+      "Key Generation Command: $(cmd) --gen-key --batch $(GNUPGHOME)/gen-key-script if => not( fileexists( $(pubkey)  ) )";
+}
+
+bundle agent cfgpg_key_collection
+{
+  vars:
+    (policy_server|am_policy_hub)::
+
+      #"hosts" slist => hostswithclass( "has_cfgpg_fingerprint", address );
+      # Zomg, i need a function that returns a bigger data structure. 
+      # Or can I make a secure curl request to the hub and get this?
+
+      # A conveniant datatype for me:
+      #      "hosts" data => '
+      # [
+      #  {"hostname": "host001", "CFEngine ID": "SHA=4e1beb44bca34f600f02144df32fcaeb5231c2346fab81b691a98c61325fbc9c", "ip": "192.168.33.3" },
+      #  {"hostname": "hub", "CFEngine ID": "SHA=b9b46aa29817a1c494c32f6e88352117eb4982b8f347092d412cdc6d321254d8", "ip": "192.168.33.2" }
+      # ]';
+
+      "cmd" string => "curl --silent --user admin:cfengine https://$(sys.fqhost)/api/host?context_include=has_cfgpg_fingerprint --cacert /var/cfengine/httpd/ssl/certs/$(sys.fqhost).cert";
+
+      # Get the command output into a data container, then pick out the useful data and index for iteration
+      "result" data => parsejson( execresult( $(cmd), useshell ) );
+      "hosts" data => mergedata( '[]', "result[data]" );
+      "i" slist => getindices( hosts );
+
+
+  files:
+    (policy_server|am_policy_hub)::
+
+      "/var/cfengine/collected/cfgpg/."
+        create => "true";
+
+      "/var/cfengine/collected/cfgpg/$(hosts[$(i)][id])"
+      # TODO Use a shortcut for this remote copy so that it will work when hub isnt same platform path as client (windows)
+        copy_from => remote_dcp( "$(cfgpg_settings.GNUPGHOME)/$(hosts[$(i)][id]).gpg.pub.asc", "$(hosts[$(i)][ip])" );
+
+
+  reports:
+    "DEBUG|inform_mode|DEBUG_$(this.bundle)"::
+      "$(this.bundle): Should collect public gpg key $(cfgpg_settings.GNUPGHOME)/$(hosts[$(i)][id]).gpg.pub.asc with hostname $(hosts[$(i)][hostname]) at $(hosts[$(i)][ip])";
+}
+
+bundle server cfgpg_access_rules
+{
+  access:
+
+      # All hosts should share their public key with the hub so that they can be
+      # collected centrally and used for encrypting data bound for the host.
+
+    any::
+      "$(cfgpg_settings.pubkey)"
+        admit => { $(sys.policy_hub), "127.0.0.1" };
+
+}
