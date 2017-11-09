@@ -9,12 +9,11 @@
 * Inventory  :ATTACH:
 :PROPERTIES:
 :ID:       82371073-cc72-4811-9575-451f694bc8b3
-:Attachments: 2017-11-09_Selection_001_2017-11-09_10-34-26.bmp
+:Attachments: 2017-11-09_Selection_001_2017-11-09_10-50-25.png
 :END:
 
-#+DOWNLOADED: file:///home/nickanderson/Pictures/Screenshots/2017-11-09_Selection_001.bmp @ 2017-11-09 10:34:28
-[[file:data/82/371073-cc72-4811-9575-451f694bc8b3/2017-11-09_Selection_001_2017-11-09_10-34-26.bmp]]
-
+#+DOWNLOADED: file:///home/nickanderson/Pictures/Screenshots/2017-11-09_Selection_001.png @ 2017-11-09 10:50:25
+[[file:data/82/371073-cc72-4811-9575-451f694bc8b3/2017-11-09_Selection_001_2017-11-09_10-50-25.png]]
 * TODOs
 ** TODO Secure credential management for querying Enterprise API
 
